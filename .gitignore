@@ -1,0 +1,17 @@
+# Built binary
+/th-cli
+/dist/
+
+# Test / coverage artifacts
+*.test
+*.out
+coverage.*
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Internal dev artifacts — kept local, not published
+/docs/plans/
+/.ralphex/

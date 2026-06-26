@@ -1,0 +1,13 @@
+{
+  "name": "vnazarenko-cc-th",
+  "owner": {
+    "name": "Viktor Nazarenko"
+  },
+  "plugins": [
+    {
+      "name": "th-cli",
+      "source": "./",
+      "description": "trendHERO Instagram influencer analytics — `th-cli` CLI + the trendhero-api agent skill. The skill self-provisions the binary from public GitHub Releases on first use."
+    }
+  ]
+}

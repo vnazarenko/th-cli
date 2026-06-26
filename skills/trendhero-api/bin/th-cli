@@ -1,0 +1,102 @@
+#!/bin/sh
+# trendHERO `th-cli` launcher.
+#
+# Self-provisions the real `th` binary: it downloads the platform build from the
+# public GitHub Releases of vnazarenko/th-cli (no token required), verifies its
+# checksum, caches it, and exec's it. The skill bundles only this ~tiny script;
+# the binary is fetched lazily on first use (there is no plugin install hook).
+#
+# Overrides (env):
+#   TRENDHERO_TH_BIN    absolute path to a `th` binary to exec directly (skips
+#                       all downloading — handy for `make build` / CI / tests).
+#   TRENDHERO_DIST_BASE base URL for release downloads (default below).
+#
+# Exit codes here are deliberately OUTSIDE the CLI's own 0-7 range so a
+# provisioning failure is never confused with a real API result:
+#   69  download/verify failed   70  unsupported platform / missing tools
+set -u
+
+# --- explicit binary override (dev/CI/tests) ----------------------------------
+if [ "${TRENDHERO_TH_BIN:-}" != "" ] && [ -x "${TRENDHERO_TH_BIN:-}" ]; then
+	exec "$TRENDHERO_TH_BIN" "$@"
+fi
+
+# --- resolve this script's own directory, following symlinks ------------------
+src="$0"
+while [ -h "$src" ]; do
+	dir=$(cd -P "$(dirname "$src")" && pwd)
+	src=$(readlink "$src")
+	case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+done
+here=$(cd -P "$(dirname "$src")" && pwd)
+
+# --- pinned version (single source of truth, committed beside the skill) ------
+version=$(cat "$here/../VERSION" 2>/dev/null) || version=""
+[ -n "$version" ] || { echo "th-cli: missing VERSION file beside the launcher" >&2; exit 70; }
+
+# --- platform -----------------------------------------------------------------
+os=$(uname -s | tr '[:upper:]' '[:lower:]')
+case "$os" in
+	linux|darwin) ;;
+	*) echo "th-cli: unsupported OS: $os (need linux or darwin)" >&2; exit 70 ;;
+esac
+arch=$(uname -m)
+case "$arch" in
+	x86_64|amd64)   arch=amd64 ;;
+	arm64|aarch64)  arch=arm64 ;;
+	*) echo "th-cli: unsupported architecture: $arch (need amd64 or arm64)" >&2; exit 70 ;;
+esac
+asset="th-cli-$os-$arch"
+
+# --- cache: prefer plugin data dir (survives updates), else XDG cache ---------
+if [ "${CLAUDE_PLUGIN_DATA:-}" != "" ]; then
+	cache_root="$CLAUDE_PLUGIN_DATA/bin"
+else
+	cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/trendhero-th"
+fi
+cache_dir="$cache_root/$version"
+bin="$cache_dir/$asset"
+
+[ -x "$bin" ] && exec "$bin" "$@"
+
+# --- download (public project → no auth) --------------------------------------
+base="${TRENDHERO_DIST_BASE:-https://github.com/vnazarenko/th-cli/releases/download}"
+url="$base/$version/$asset"
+sums_url="$base/$version/SHA256SUMS"
+
+fetch() { # url out  -> 0 on success
+	if command -v curl >/dev/null 2>&1; then curl -fsSL "$1" -o "$2"
+	elif command -v wget >/dev/null 2>&1; then wget -qO "$2" "$1"
+	else echo "th-cli: need curl or wget to download the binary" >&2; return 70; fi
+}
+
+mkdir -p "$cache_dir" || { echo "th-cli: cannot create cache dir $cache_dir" >&2; exit 69; }
+tmp="$cache_dir/.$asset.$$"
+
+if ! fetch "$url" "$tmp"; then
+	rm -f "$tmp"
+	echo "th-cli: failed to download $asset for $version" >&2
+	echo "th-cli:   from $url" >&2
+	echo "th-cli:   check connectivity, set TRENDHERO_DIST_BASE, or place a binary at $bin" >&2
+	exit 69
+fi
+
+# --- verify checksum (fail closed when SHA256SUMS lists this asset) -----------
+sums="$cache_dir/SHA256SUMS"
+if fetch "$sums_url" "$sums" 2>/dev/null; then
+	expected=$(awk -v a="$asset" '$2==a || $2=="*"a {print $1}' "$sums" 2>/dev/null | head -n1)
+	if [ -n "$expected" ]; then
+		if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$tmp" | awk '{print $1}')
+		elif command -v shasum >/dev/null 2>&1; then actual=$(shasum -a 256 "$tmp" | awk '{print $1}')
+		else actual=""; fi
+		if [ -n "$actual" ] && [ "$actual" != "$expected" ]; then
+			rm -f "$tmp"
+			echo "th-cli: checksum mismatch for $asset" >&2
+			echo "th-cli:   expected $expected got $actual" >&2
+			exit 69
+		fi
+	fi
+fi
+
+chmod +x "$tmp" && mv -f "$tmp" "$bin" || { rm -f "$tmp"; echo "th-cli: failed to install binary to $bin" >&2; exit 69; }
+exec "$bin" "$@"

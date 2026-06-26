@@ -1,0 +1,299 @@
+openapi: 3.0.3
+info:
+  title: trendHERO Public API
+  description: >
+    The trendHERO public API used by API clients (AdvancedApi subscription).
+
+    Two surfaces share a single `/api/public` prefix:
+
+      * `GET /top_profiles` — unauthenticated top-account rankings (no `v1`).
+      * `/v1/reports*` — Bearer-authenticated influencer reports.
+
+    Authentication is a long-lived `AccessToken` sent as
+    `Authorization: Bearer <token>`. Create one per Space at
+    https://trendhero.io/app/api/access-tokens (requires the AdvancedApi
+    subscription).
+  version: "1.0.0"
+
+servers:
+  # The host (scheme + authority) is the only thing the CLI configures; the
+  # `/api/public` prefix is appended once here so spec paths stay clean and we
+  # never hand-build URLs or risk a double `/api`. top_profiles (no `v1`) and
+  # reports (`v1`) therefore share this single base.
+  - url: "{host}/api/public"
+    description: trendHERO public API base
+    variables:
+      host:
+        default: https://trendhero.io
+        description: >
+          API host as scheme + authority (e.g. https://trendhero.io). The CLI
+          sets this from --base-url / TRENDHERO_BASE_URL / config base_url and
+          defaults to the trendHERO API host; do not include a path.
+
+# NOTE: security is declared per-operation, NOT globally — `GET /top_profiles`
+# is intentionally left unauthenticated (see its empty `security: []`).
+
+paths:
+  /top_profiles:
+    get:
+      operationId: getTopProfiles
+      summary: Top Instagram profiles for a country/month
+      description: >
+        Ranked top accounts (by follower count) for a country and month. This
+        endpoint is unauthenticated:
+        the CLI sends the Bearer token only if one is configured, never requires
+        it. Returns at most 100 items.
+      # Explicitly no auth — overrides any future global default.
+      security: []
+      parameters:
+        - name: type
+          in: query
+          required: false
+          description: >
+            Ranking type. `absolute` ranks by follower count. `relative`
+            (growth) is not yet implemented server-side and currently yields a
+            422 error.
+          schema:
+            type: string
+            enum: [absolute, relative]
+            default: absolute
+        - name: country
+          in: query
+          required: false
+          description: >
+            ISO country filter. Only this fixed set is supported; an unknown
+            value is ignored server-side (treated as no country filter).
+          schema:
+            type: string
+            enum: [US, UA, RU, DE, FR, TR, BR, IT, PL]
+        - name: year
+          in: query
+          required: false
+          description: Year of the ranking window. Defaults server-side to the current year.
+          schema:
+            type: integer
+            example: 2026
+        - name: month
+          in: query
+          required: false
+          description: Month (1-12) of the ranking window. Defaults server-side to 1.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+            example: 6
+      responses:
+        "200":
+          description: Ranked list of top profiles (possibly empty).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TopProfile"
+        "422":
+          description: >
+            Validation / feature-in-progress error (e.g. `type=relative`).
+            Body carries `error.message`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/reports/{username}:
+    get:
+      operationId: getReport
+      summary: Fetch an influencer report
+      description: >
+        Fetch the report blob for a username. The response is a free-form object
+        whose meaningful status lives nested at `report.status` (NOT a top-level
+        field). Statuses: `ready`, `impossibleButReady`, `recollecting` (all
+        usable/terminal), `impossible` (terminal-failed), `collecting` (keep
+        polling).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: username
+          in: path
+          required: true
+          description: Instagram username to fetch the report for.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The report blob (see ReportResponse — free-form).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportResponse"
+        "401":
+          description: Missing/invalid Bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token valid but not permitted (e.g. subscription/feature).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No report exists for the username.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/reports:
+    post:
+      operationId: createReport
+      summary: Order (generate) an influencer report
+      description: >
+        Order a report for a username. This SPENDS CREDITS. Returns the report
+        in a `collecting` status; poll `GET /v1/reports/{username}` until a
+        terminal status is reached.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: username
+          in: query
+          required: true
+          description: Instagram username to order a report for.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Report ordered; typically `collecting`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportResponse"
+        "401":
+          description: Missing/invalid Bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token valid but not permitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: >
+            Cannot order (e.g. `not_enough_balance`, `impossible_report`,
+            unconfirmed user). Body carries `error.message`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  securitySchemes:
+    # Long-lived AccessToken private token, sent as `Authorization: Bearer ...`.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        trendHERO AccessToken (long-lived, no expiry). Mint at
+        /app/api/access-tokens (AdvancedApi subscription required).
+
+  schemas:
+    # Typed because top_profiles is the data we actually consume. Some enriched
+    # fields are nullable because the source data may be missing.
+    TopProfile:
+      type: object
+      description: A single ranked top profile.
+      required:
+        - username
+        - pk
+      properties:
+        username:
+          type: string
+          description: Instagram username.
+        pk:
+          type: string
+          description: Instagram account primary key (string identifier).
+        country:
+          type: string
+          nullable: true
+          description: Country (mirrors `any_last_country`).
+        any_last_country:
+          type: string
+          nullable: true
+          description: Raw last-seen country from account stats.
+        full_name:
+          type: string
+          nullable: true
+          description: Display name (may be null).
+        account_type:
+          type: string
+          nullable: true
+          description: Account type (may be null).
+        is_verified:
+          type: boolean
+          nullable: true
+          description: Verified badge (from cache; may be null).
+        general_er:
+          type: number
+          nullable: true
+          description: General engagement rate.
+        follower_count:
+          type: integer
+          format: int64
+          nullable: true
+          description: Followers at end of window.
+        following_count:
+          type: integer
+          format: int64
+          nullable: true
+          description: Followings at end of window.
+        grow_follower_count:
+          type: integer
+          format: int64
+          nullable: true
+          description: Follower growth across the window.
+        min_f:
+          type: integer
+          format: int64
+          nullable: true
+          description: Minimum followers across the window.
+        max_f:
+          type: integer
+          format: int64
+          nullable: true
+          description: Maximum followers across the window.
+        media_count:
+          type: integer
+          format: int64
+          nullable: true
+          description: Number of media (may be null).
+        profile_pic_url:
+          type: string
+          nullable: true
+          description: Avatar URL (S3-signed).
+
+    # Reports are modelled LOOSELY on purpose: the blob is huge, volatile, and
+    # JSON-only output means typing it fully is wasted effort. There is NO
+    # top-level `status`; the real status is nested at `report.status` and is
+    # read outside the generated types (see Task 6 reportStatus). Top-level keys
+    # observed include preview/report/saves_shares_report/openai_report/cache/
+    # type/demo, each with its own status.
+    ReportResponse:
+      type: object
+      description: Free-form report blob. No declared top-level status.
+      additionalProperties: true
+
+    # API errors render as `{ "error": ... }` where `error` is either a string
+    # or an object carrying `message`. Modelled loosely; the CLI extracts the
+    # message in internal/output (Task 5).
+    Error:
+      type: object
+      description: API error envelope.
+      additionalProperties: true
+      properties:
+        error:
+          nullable: true
+          description: Error payload — a string, or an object with a `message`.

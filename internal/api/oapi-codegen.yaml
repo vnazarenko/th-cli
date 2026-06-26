@@ -1,0 +1,14 @@
+# oapi-codegen configuration for the trendHERO public-API client.
+#
+# Read by `make generate` (which runs `go generate ./...`, see generate.go).
+# It emits typed models (the TopProfile array we actually consume; reports stay
+# a loose object) plus a typed HTTP client into client.gen.go, package `api`.
+# Regenerate whenever public-api.openapi.yaml changes and commit the result —
+# CI verifies the checked-in client matches the spec (no diff).
+package: api
+output: client.gen.go
+generate:
+  # `models` == the legacy `types` target: structs for TopProfile/Error and a
+  # loose map for ReportResponse. `client` == the typed request methods.
+  models: true
+  client: true

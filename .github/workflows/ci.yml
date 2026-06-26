@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: go vet
+        run: go vet ./...
+      # The checked-in client must match the spec: regenerate and fail on a diff.
+      - name: generate drift check
+        run: |
+          make generate
+          git diff --exit-code -- internal/api/client.gen.go
+      - name: go test
+        run: go test ./...
+      # Make sure the full release matrix still cross-compiles.
+      - name: cross-compile
+        run: make release
+
+  golangci-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - uses: golangci/golangci-lint-action@v6
+        continue-on-error: true
