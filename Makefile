@@ -5,14 +5,14 @@
 #   make test           run the full test suite
 #   make lint           go vet (+ golangci-lint if installed)
 #   make generate       regenerate the oapi-codegen client from the spec
-#   make install-skill  symlink skills/trendhero-api into ~/.claude/skills/
+#   make install-skill  symlink skills/th-cli into ~/.claude/skills/
 #   make release        cross-compile release binaries into dist/
 #   make clean          remove build/test artifacts
 
 BINARY      := th-cli
 PKG         := github.com/vnazarenko/th-cli
 DIST        := dist
-SKILL_NAME  := trendhero-api
+SKILL_NAME  := th-cli
 SKILLS_DIR  := $(HOME)/.claude/skills
 
 # Version metadata, injected into the binary via -ldflags so `th-cli version` (and

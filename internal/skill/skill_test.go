@@ -10,10 +10,10 @@ import (
 // skillDir is the actual skill bundle, relative to this package directory (Go
 // tests run with the package dir as the working dir). It lives under skills/ in
 // the Claude-plugin layout so the plugin loader auto-discovers it.
-const skillDir = "../../skills/trendhero-api"
+const skillDir = "../../skills/th-cli"
 
 // TestActualSkillFrontmatter is the doc-lint smoke check: the shipped
-// skill/SKILL.md must carry valid frontmatter naming the trendhero-api skill,
+// skill/SKILL.md must carry valid frontmatter naming the th-cli skill,
 // since that metadata is what an agent runtime uses to discover and trigger it.
 func TestActualSkillFrontmatter(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
@@ -28,8 +28,8 @@ func TestActualSkillFrontmatter(t *testing.T) {
 	if err := fm.Validate(); err != nil {
 		t.Fatalf("frontmatter invalid: %v", err)
 	}
-	if fm.Name != "trendhero-api" {
-		t.Errorf("name = %q, want trendhero-api", fm.Name)
+	if fm.Name != "th-cli" {
+		t.Errorf("name = %q, want th-cli", fm.Name)
 	}
 	// The description is the trigger surface — sanity-check it actually points at
 	// the CLI and the domain rather than being a placeholder.

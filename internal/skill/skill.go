@@ -1,4 +1,4 @@
-// Package skill provides a lightweight validator for the trendhero-api Claude
+// Package skill provides a lightweight validator for the th-cli Claude
 // skill bundle (skill/SKILL.md + references). It exists so `go test ./...` can
 // guard the skill's frontmatter — the metadata an agent runtime relies on to
 // discover and trigger the skill — without pulling in a separate doc-lint

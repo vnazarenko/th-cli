@@ -2,10 +2,10 @@ name: release
 
 # On a `vX.Y.Z` tag: cross-compile the matrix (VERSION stamped from the tag),
 # checksum it, and publish the binaries + SHA256SUMS as a public GitHub Release.
-# The skill launcher (skills/trendhero-api/bin/th-cli) downloads them from
+# The skill launcher (skills/th-cli/bin/th-cli) downloads them from
 # https://github.com/vnazarenko/th-cli/releases/download/<tag>/... — no token.
 #
-# Keep the pinned skills/trendhero-api/VERSION equal to the tag you push.
+# Keep the pinned skills/th-cli/VERSION equal to the tag you push.
 
 on:
   push:

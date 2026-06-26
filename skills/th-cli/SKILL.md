@@ -1,5 +1,5 @@
 ---
-name: trendhero-api
+name: th-cli
 description: >-
   Query trendHERO Instagram influencer analytics — ranked top profiles and
   per-account audience/engagement reports — using the `th-cli` CLI. Use this
@@ -27,8 +27,8 @@ results without scraping text. Two capabilities:
 and caches the real binary from public GitHub Releases — **no token is needed to
 install it**. Invoke it by full path:
 
-- Plugin install: `"${CLAUDE_PLUGIN_ROOT}/skills/trendhero-api/bin/th-cli"`
-- Symlink install: `~/.claude/skills/trendhero-api/bin/th-cli`
+- Plugin install: `"${CLAUDE_PLUGIN_ROOT}/skills/th-cli/bin/th-cli"`
+- Symlink install: `~/.claude/skills/th-cli/bin/th-cli`
 
 For brevity the rest of this doc writes `th-cli` — substitute the launcher path (or
 plain `th-cli` if the user has symlinked it onto `PATH`). The first call fetches the
