@@ -71,19 +71,34 @@ subscription, and there is one token per Space.
 never required.
 
 Provide the token via flag, environment variable, or config file
-(`--token` > `TRENDHERO_TOKEN` > config-file `token`):
+(`--token` > `TRENDHERO_TOKEN` > config-file `token`).
+
+### Config file (recommended)
+
+The simplest, persistent setup — copy the bundled [`config.example.yaml`](config.example.yaml)
+and paste your token:
+
+```bash
+mkdir -p ~/.config/th-cli
+cp config.example.yaml ~/.config/th-cli/config.yaml
+# edit ~/.config/th-cli/config.yaml → replace REPLACE_WITH_YOUR_ACCESS_TOKEN
+chmod 600 ~/.config/th-cli/config.yaml
+```
+
+It is read on every call (no restart needed). The file is just:
+
+```yaml
+token: <AccessToken>
+```
+
+### Environment variable
 
 ```bash
 export TRENDHERO_TOKEN=<AccessToken>
 ```
 
-### Config file
-
-Optional, at `~/.config/th-cli/config.yaml` (override with `--config <path>`):
-
-```yaml
-token: <AccessToken>
-```
+If you set this in a shell profile, restart your terminal (or Claude Code) so
+the value is inherited.
 
 ### Base URL (optional)
 

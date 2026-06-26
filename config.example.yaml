@@ -1,0 +1,19 @@
+# th-cli configuration.
+#
+# Copy this file to ~/.config/th-cli/config.yaml and replace the placeholder
+# below with your trendHERO AccessToken:
+#
+#   mkdir -p ~/.config/th-cli
+#   cp config.example.yaml ~/.config/th-cli/config.yaml
+#   # then edit ~/.config/th-cli/config.yaml and paste your token
+#   chmod 600 ~/.config/th-cli/config.yaml
+#
+# Get a token (requires the AdvancedApi subscription):
+#   https://trendhero.io/app/api/access-tokens
+#
+# `top-profiles` needs no token; `report` commands require it.
+
+token: REPLACE_WITH_YOUR_ACCESS_TOKEN
+
+# Optional — override the API host. Leave this out to use the trendHERO API.
+# base_url: https://trendhero.io

@@ -47,12 +47,14 @@ below. Relay that message to the user rather than guessing.
      AdvancedApi subscription; one per Space).
    - Then store it. The **most reliable way for the skill** is the config file —
      a shell `export` may not reach the binary depending on how Claude was
-     launched, but the file always does:
-     ```yaml
-     # ~/.config/th-cli/config.yaml
-     token: <AccessToken>
+     launched, but the file always does. A ready-to-edit template ships at
+     `${CLAUDE_PLUGIN_ROOT}/config.example.yaml`; copy it and fill in the token:
+     ```bash
+     mkdir -p ~/.config/th-cli
+     cp "${CLAUDE_PLUGIN_ROOT}/config.example.yaml" ~/.config/th-cli/config.yaml
+     # then set `token:` in ~/.config/th-cli/config.yaml
      ```
-     You may offer to create that file for the user once they share their token.
+     You may offer to do this for the user once they share their token.
      Alternatively `export TRENDHERO_TOKEN=<token>` in the shell that starts
      Claude, or pass `--token <token>` per call. See `references/auth.md`.
 3. **Read results from stdout as JSON; branch on the exit code** (table below).
