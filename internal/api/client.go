@@ -6,6 +6,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -146,6 +147,28 @@ func (c *THClient) GetReport(ctx context.Context, username string) (json.RawMess
 func (c *THClient) OrderReport(ctx context.Context, username string) (json.RawMessage, error) {
 	return c.do(ctx, func(ctx context.Context) (*http.Response, error) {
 		return c.gen.CreateReport(ctx, &CreateReportParams{Username: username})
+	})
+}
+
+// SearchAccounts runs one discovery search and returns the response as raw
+// JSON. Requires a Bearer token server-side (the command enforces its presence
+// via config.RequireToken).
+//
+// ⚠️ This SPENDS CREDITS — a flat charge per call plus one per result returned.
+// There is no dry-run and no count-only mode, so there is deliberately no
+// auto-paging helper here (contrast WaitForReport, which is free to loop): a
+// convenience that quietly issues N billed calls is the wrong thing to offer.
+//
+// The body is passed through as raw JSON via the generated *WithBody variant
+// rather than the typed SearchAccountsJSONRequestBody. The filter surface is
+// wide, server-validated, and reachable in full through --filters-json; routing
+// it through a Go struct would silently DROP any key the struct does not model
+// — turning a caller's typo into a broader search that still bills. Raw
+// passthrough means the server sees exactly what the caller wrote and can
+// reject it with the 422 that names the offending filter.
+func (c *THClient) SearchAccounts(ctx context.Context, body json.RawMessage) (json.RawMessage, error) {
+	return c.do(ctx, func(ctx context.Context) (*http.Response, error) {
+		return c.gen.SearchAccountsWithBody(ctx, "application/json", bytes.NewReader(body))
 	})
 }
 

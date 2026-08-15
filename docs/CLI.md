@@ -10,6 +10,7 @@ don't need Claude Code.
 | Command | Auth | Notes |
 |---------|------|-------|
 | `th-cli top-profiles` | none | Ranked top Instagram accounts for a country/period |
+| `th-cli search` | token | Find accounts by filters — **PAID**, spends credits per result; no `--confirm`, no auto-paging |
 | `th-cli report get <username>` | token | Fetch an audience/engagement report (add `--wait` to poll) |
 | `th-cli report order <username>` | token | Order a **new** report — **PAID**, guarded by `--confirm` |
 | `th-cli version` | — | Build metadata as JSON |
@@ -58,8 +59,8 @@ ls dist/            # th-cli-darwin-amd64  th-cli-darwin-arm64  th-cli-linux-amd
 
 ## Authentication
 
-Report commands need a trendHERO **AccessToken** — a long-lived token (no
-expiry, no `th-cli login`). Get one at
+`search` and the report commands need a trendHERO **AccessToken** — a long-lived
+token (no expiry, no `th-cli login`). Get one at
 **https://trendhero.io/app/api/access-tokens**; this requires the **AdvancedApi**
 subscription, and there is one token per Space.
 
@@ -112,6 +113,13 @@ th-cli top-profiles --country US
 # Filter by ranking type / period
 th-cli top-profiles --country UA --type absolute --year 2026 --month 5
 
+# Find accounts (PAID — spends credits per result returned)
+th-cli search --keywords fitness --country US --followers-min 50000 --size 25
+
+# Full filter surface via JSON (file or `-` for stdin), merged over the flags
+echo '{"aqs":{"gte":60},"sort":[{"general_er":"desc"}]}' \
+  | th-cli search --filters-json - --size 10
+
 # Fetch a report as-is (may still be `collecting`)
 th-cli report get nasa
 
@@ -127,6 +135,43 @@ th-cli report order nasa --confirm --wait      # order, then poll to completion
 `--type absolute|relative` (default `absolute`; `relative` is not yet
 implemented server-side and returns 422 / exit 6), `--year`, `--month` (1-12) —
 all optional.
+
+### Search: cost, paging and filters
+
+`search` flags: `--keywords`, `--followers-min`, `--followers-max`, `--er-min`,
+`--er-max` (engagement rate in percent), `--country`, `--language`,
+`--category`, `--gender` (`male|female|none|brand`), `--verified`,
+`--with-contacts` (`biography_contacts|trendhero_contacts`),
+`--filters-json <file|->`, `--page`, `--size`.
+
+**Every call spends credits** — a flat charge per search plus one per result
+returned. Three things to know:
+
+- **Pages are 0-indexed.** `--page 0` is the first page (the default).
+- **`--size` must be 1-50** (default 15). Out of range is rejected locally
+  (exit 1) and by the API with a **422 — never clamped**. Size is a direct cost
+  multiplier.
+- **A zero-match search is a success**: HTTP 200, exit 0, `"results": []`. Read
+  `results`, not the exit code.
+
+There is deliberately **no `--all`/auto-paging flag** (each page is a separate
+billed call) and **no `--confirm` guard** (unlike `report order` — a search is
+cheap per call and agents run many; the cost is documented instead).
+
+`--filters-json` takes a file path or `-` for stdin and carries the full
+`search_params` object — including the premium audience filters
+(`audience_locations`, `audience_gender`, `audience_authentic`, `aqs`), `sort`,
+city-level `locations` and `rapidapi_age`. Its top-level keys are merged **over**
+whatever the individual flags set. Response shape:
+
+```json
+{ "results": [ … ],
+  "pagination": { "page": 0, "size": 15, "total_pages": 20, "total_results": 48231 } }
+```
+
+`total_pages` is capped by the account's plan (and shrinks as credits are
+spent), so it is usually far smaller than `total_results / size`. Full filter
+reference: [`skills/th-cli/references/search.md`](../skills/th-cli/references/search.md).
 
 ### Reports: status & exit codes
 
@@ -145,12 +190,12 @@ Failures print `{"error":...,"hint":...}` to **stderr** and exit non-zero:
 | Code | Meaning |
 |------|---------|
 | 0 | success |
-| 1 | usage / generic (invalid flag, order without `--confirm`) |
+| 1 | usage / generic (invalid flag, `--size` outside 1-50, order without `--confirm`) |
 | 2 | auth — missing/invalid token |
-| 3 | forbidden (403) — subscription/feature/balance |
+| 3 | forbidden (403) — subscription/feature, or a capability disabled by an admin |
 | 4 | not found (404) |
 | 5 | network / timeout (incl. `--wait` timeout) |
-| 6 | validation (422) — e.g. `not_enough_balance` |
+| 6 | validation (422) — e.g. `not_enough_balance`, a bad filter shape, a page past the plan cap |
 | 7 | service unavailable (503) |
 
 ## How the skill ships the binary
@@ -217,7 +262,7 @@ diff fails the build).
 
 ```
 main.go                  entrypoint → cmd.Execute()
-cmd/                     Cobra commands (root, version, top-profiles, report get/order)
+cmd/                     Cobra commands (root, version, top-profiles, search, report get/order)
 internal/api/            OpenAPI spec, generated client, client wrapper + poll-until-ready
 internal/config/         flag > env > file resolution, host + token resolution
 internal/output/         JSON writer + error→exit-code mapping

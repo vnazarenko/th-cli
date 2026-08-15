@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -40,18 +42,29 @@ type cmdRequest struct {
 	path   string
 	auth   string
 	query  url.Values
+	// body is the raw request body, captured for the POST commands whose whole
+	// contract is the JSON they send (search). It is nil for GETs.
+	body []byte
 }
 
 func newCmdServer(t *testing.T, h http.HandlerFunc) *cmdServer {
 	t.Helper()
 	cs := &cmdServer{}
 	cs.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Drain the body to record it, then put it back so the handler under
+		// test can still read it.
+		var body []byte
+		if r.Body != nil {
+			body, _ = io.ReadAll(r.Body)
+			r.Body = io.NopCloser(bytes.NewReader(body))
+		}
 		cs.mu.Lock()
 		cs.reqs = append(cs.reqs, cmdRequest{
 			method: r.Method,
 			path:   r.URL.Path,
 			auth:   r.Header.Get("Authorization"),
 			query:  r.URL.Query(),
+			body:   body,
 		})
 		cs.mu.Unlock()
 		h(w, r)
