@@ -2,7 +2,7 @@
   "name": "th-cli",
   "displayName": "trendHERO API",
   "description": "Query trendHERO Instagram influencer analytics — ranked top profiles, influencer discovery search, and per-account audience/engagement reports — via the bundled `th-cli` CLI. The binary is fetched on first use from public GitHub Releases; no token is needed to install.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": {
     "name": "Viktor Nazarenko"
   },

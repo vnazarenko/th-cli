@@ -88,7 +88,8 @@ implemented server-side → 422), `--year`, `--month` (1-12). All optional; the
 server applies defaults. The token is sent only if configured, never required.
 
 **`search`** flags: `--keywords`, `--followers-min`, `--followers-max`,
-`--er-min`, `--er-max` (engagement rate in percent), `--country`, `--language`,
+`--er-min`, `--er-max` (engagement rate in percent), `--country`, `--language`
+(**3-letter** codes: `spa`, `eng`),
 `--category`, `--gender` (`male|female|none|brand`), `--verified`,
 `--with-contacts` (`biography_contacts|trendhero_contacts`), plus
 `--filters-json <file|->` for the full filter surface (premium audience
@@ -135,12 +136,18 @@ job to be economical:
   separate billed call. Only page further when the user's question needs it.
 - **Don't re-run the same search** to "check something" — keep the JSON.
 
-Three gotchas that cost round trips:
+Five gotchas that cost round trips (and credits):
 
 1. **Pages are 0-indexed.** `--page 0` is the first page (the default).
 2. **`--size` must be 1–50.** Out of range is a hard error, **never clamped**.
 3. **A zero-match search is a SUCCESS** — HTTP 200, exit 0, `"results": []`.
-   Read `results`, not the exit code, to learn that nothing matched.
+   Read `results`, not the exit code, to learn that nothing matched. It is
+   still billed the flat per-search charge.
+4. **Language codes are 3 letters** — `spa`, `eng`, `cat`, `fre`. A 2-letter
+   code matches nothing, so the CLI rejects it before any call is made.
+5. **"Posted recently" is `gte`, not `lte`.** `last_post_at` counts days ago:
+   `{"last_post_at": {"gte": 60}}` = posted within the last 60 days.
+   `{"lte": 60}` means the opposite — accounts **inactive** for 60+ days.
 
 Full filter reference, worked examples and the error table:
 `references/search.md`.

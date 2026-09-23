@@ -86,7 +86,7 @@ otherwise both look like exit `6`.
 | `--followers-min` / `--followers-max` | `follower_count` `{gte,lte}` | Either bound alone is fine. |
 | `--er-min` / `--er-max` | `general_er` `{gte,lte}` | Engagement rate **in percent** (`--er-min 2.5` = 2.5%). |
 | `--country` | `locations` (include half) | ISO code(s), repeatable or comma-separated. Where the **account** is, not its audience. |
-| `--language` | `languages` | Language code(s) the account posts in. |
+| `--language` | `languages` | **3-letter** code(s) the account posts in: `spa`, `eng`, `cat`, `fre`… A 2-letter code (`es`, `en`) is rejected locally — it would match nothing and still bill. |
 | `--category` | `instagram_category` | Instagram's own business-category labels. |
 | `--gender` | `gender` | `male`, `female`, `none`, `brand` — translated to the numeric codes the index stores. |
 | `--verified` | `is_verified` | `--verified` = verified only; `--verified=false` = **unverified only**; omit for either. |
@@ -119,7 +119,7 @@ cat <<'JSON' | th-cli search --filters-json - --page 0 --size 30
   "keywords": ["yoga", "pilates"],
   "follower_count": { "gte": 20000, "lte": 300000 },
   "general_er": { "gte": 2 },
-  "languages": ["en"],
+  "languages": ["eng"],
   "is_verified": false,
   "sort": [{ "follower_count": "desc" }]
 }
@@ -159,7 +159,7 @@ you asked for — and bill you for it.
 | `follower_growth_7` | percent |
 | `follower_growth_30` | percent |
 | `follower_growth_90` | percent |
-| `last_post_at` | **days ago** (`{"lte": 30}` = posted within 30 days) |
+| `last_post_at` | **days ago** — `{"gte": 30}` = posted **within** the last 30 days. ⚠️ `lte` is the opposite: `{"lte": 30}` = **no** post for 30+ days (inactive accounts). |
 | `audience_authentic` | percent — **premium** |
 | `aqs` | Audience Quality Score — **premium** |
 
@@ -171,7 +171,7 @@ normalised `audience_gender` filter; send `audience_gender`.
 | Key | Shape | Meaning |
 |-----|-------|---------|
 | `pks` | array of numbers/numeric strings | Restrict to specific Instagram account ids. |
-| `languages` | array of strings | Language codes. |
+| `languages` | array of strings | **3-letter** lowercase codes (ISO 639-2, bibliographic form): `spa`, `eng`, `cat`, `glg`, `fre`, `ita`, `por`. French is `fre`, not `fra`. The CLI rejects 2-letter codes here too. |
 | `instagram_category` | array of strings | Instagram business categories. |
 | `mega_categories` | array of strings | trendHERO's coarse topic buckets. |
 | `with_contacts` | array of strings | `biography_contacts`, `trendhero_contacts`. |
