@@ -4,10 +4,13 @@ info:
   description: >
     The trendHERO public API used by API clients (AdvancedApi subscription).
 
-    Two surfaces share a single `/api/public` prefix:
+    Three surfaces share a single `/api/public` prefix:
 
       * `GET /top_profiles` — unauthenticated top-account rankings (no `v1`).
       * `/v1/reports*` — Bearer-authenticated influencer reports.
+      * `POST /v1/searches` — Bearer-authenticated account (influencer)
+        discovery search. **Every call spends subscription credits**, per
+        result returned.
 
     Authentication is a long-lived `AccessToken` sent as
     `Authorization: Bearer <token>`. Create one per Space at
@@ -190,6 +193,91 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /v1/searches:
+    post:
+      operationId: searchAccounts
+      summary: Search (discover) Instagram accounts — PAID
+      description: >
+        Account (influencer) discovery with the same filter surface as the web
+        UI's discovery search.
+
+
+        ⚠️ **This SPENDS CREDITS on every call**, drawn from the same
+        subscription-feature balances the web UI uses — one flat charge per
+        search plus a per-result charge for every hit returned. There is no
+        free/preview mode and no "count only" mode: asking for `size: 50`
+        costs roughly fifty times what `size: 1` costs. Page through
+        deliberately.
+
+
+        **Pages are 0-indexed.** The first page is `page: 0`, not `page: 1`.
+
+
+        **`size` must be within 1..50.** Out of range is rejected with a
+        **422** — the server never clamps. The `minimum`/`maximum` on the
+        schema below is client-side courtesy so a generated client can fail
+        early; the contract is the 422.
+
+
+        **The reachable result set is capped by the caller's plan.**
+        `pagination.total_pages` is
+        `min(ceil(total_results / size), ceil(plan_cap / size))`, where
+        `plan_cap` is the owner's remaining `discovery_results` allowance —
+        so it SHRINKS as credits are spent. `pagination.total_results` is the
+        raw Elasticsearch match count and may be far larger than
+        `total_pages * size`.
+
+
+        **Page 0 is always valid.** A search matching nothing returns **200**
+        with an empty `results` array (and still charges the flat per-search
+        credits, exactly as the web UI does). For `page >= 1`,
+        `page >= total_pages` is a 422 and is NOT billed.
+      security:
+        - bearerAuth: []
+      requestBody:
+        # An entirely absent body is legal and means "match everything, page 0,
+        # size 15" — the same as `{}`. It is declared optional for that reason.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchRequest"
+      responses:
+        "200":
+          description: >
+            Matching accounts plus pagination metadata. Charged — see the
+            operation description.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResponse"
+        "401":
+          description: Missing/invalid Bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: >
+            Either the token's owner has no AdvancedApi subscription pack, or
+            an administrator has disabled the `search` capability for this
+            account (a distinct message). Both are 403.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: >
+            Rejected before or without billing. Causes, each with its own
+            `error` message: insufficient balance; `size` outside 1..50
+            (rejected, never clamped); a page beyond the plan cap or beyond
+            the last page of results (unbilled); a filter sent in the wrong
+            shape; a `search_params` that is not a JSON object at all.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   securitySchemes:
     # Long-lived AccessToken private token, sent as `Authorization: Bearer ...`.
@@ -297,3 +385,576 @@ components:
         error:
           nullable: true
           description: Error payload — a string, or an object with a `message`.
+
+    # ---------------------------------------------------------------------
+    # POST /v1/searches — request
+    # ---------------------------------------------------------------------
+
+    SearchRequest:
+      type: object
+      description: >
+        A discovery-search request. Every field is optional: the empty object
+        `{}` (or no body at all) is "match everything, first page, 15 results".
+      properties:
+        search_params:
+          $ref: "#/components/schemas/SearchParams"
+        page:
+          type: integer
+          minimum: 0
+          default: 0
+          description: >
+            **0-indexed** page number. The FIRST page is `0`. Page 0 is always
+            valid, even when nothing matched (200 + empty `results`). For
+            `page >= 1`, a page at or beyond `pagination.total_pages` is a 422
+            and is not billed.
+          example: 0
+        size:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 15
+          description: >
+            Results per page, **1..50**. Out of range is a **422 — the server
+            never clamps**; the bounds here only let a client fail early. Every
+            result returned is charged, so `size` is a direct cost multiplier.
+            The response echoes the requested `size` back verbatim.
+          example: 15
+
+    SortDirection:
+      type: string
+      enum: [asc, desc]
+      description: Sort direction.
+
+    LocationType:
+      type: string
+      enum: [city, country]
+      description: >
+        Which half of a location entry is read. `city` uses `value` (a GeoNames
+        city id); `country` uses `country` (an ISO country code).
+
+    RangeFilter:
+      type: object
+      description: >
+        An inclusive numeric range. Both bounds are optional; a bound that is
+        absent or blank is simply not applied, and a range with no usable bound
+        contributes no filter at all.
+      properties:
+        gte:
+          type: number
+          description: Lower bound (inclusive).
+        lte:
+          type: number
+          description: Upper bound (inclusive).
+
+    AudienceGenderFilter:
+      type: object
+      description: >
+        **Premium filter.** Audience gender share. The index only stores the
+        male share, so a `female` filter is inverted server-side into
+        `male <= 100 - gte`.
+
+
+        ⚠️ Only `gender` + `gte` are acted on. `gte` must be present and
+        non-blank; a blank `gte` disables the whole filter (and, deliberately,
+        also stops the search being billed at the premium per-hit tariff).
+      properties:
+        gender:
+          type: string
+          enum: [male, female]
+          description: Which side of the audience the `gte` share applies to.
+        gte:
+          type: number
+          description: Minimum share of the audience, in percent (0-100).
+        lte:
+          type: number
+          description: >
+            Permitted for symmetry but NOT applied — the server derives the
+            effective bound from `gender` + `gte` alone.
+
+    SortEntry:
+      type: object
+      description: >
+        One sort clause, as `{ "<field>": "asc"|"desc" }`. Only these five
+        fields are sortable; any other key in the entry is dropped. `sort` is
+        an ARRAY of these, applied in order, and `pk asc` is always appended as
+        the final tiebreaker.
+      properties:
+        general_er:
+          $ref: "#/components/schemas/SortDirection"
+        follower_count:
+          $ref: "#/components/schemas/SortDirection"
+        follower_growth_30:
+          $ref: "#/components/schemas/SortDirection"
+        median_likes:
+          $ref: "#/components/schemas/SortDirection"
+        median_comments:
+          $ref: "#/components/schemas/SortDirection"
+
+    LocationFilter:
+      type: object
+      description: >
+        An ACCOUNT location (where the account itself is), include or exclude.
+
+
+        ⚠️ `should_be_included` is REQUIRED and must be a real boolean. The
+        server splits the list into an include half (`true`) and an exclude
+        half (`false`); an entry carrying neither is in neither half, so the
+        API rejects it with a 422 rather than silently running a broader search.
+      required:
+        - should_be_included
+      properties:
+        type:
+          $ref: "#/components/schemas/LocationType"
+        value:
+          type: integer
+          format: int64
+          description: GeoNames city id. Read when `type` is `city`.
+        country:
+          type: string
+          description: ISO country code (e.g. `US`). Read when `type` is `country`.
+        name:
+          type: string
+          description: Human-readable label. Ignored by the query; carried for round-tripping.
+        should_be_included:
+          type: boolean
+          description: >
+            `true` = must be in this location, `false` = must NOT be. Required.
+
+    AudienceLocationFilter:
+      type: object
+      description: >
+        **Premium filter.** An AUDIENCE location — where an account's followers
+        are — with an optional share range on top of the place itself.
+
+
+        Unlike `locations` there is no include/exclude flag: every entry is a
+        requirement. An entry naming no place (no `value` for a city, no
+        `country` for a country) is dropped. An entry with no `gte`/`lte` means
+        "has any audience here".
+      properties:
+        type:
+          $ref: "#/components/schemas/LocationType"
+        value:
+          type: integer
+          format: int64
+          description: GeoNames city id. Read when `type` is `city`.
+        country:
+          type: string
+          description: ISO country code. Read when `type` is `country`.
+        name:
+          type: string
+          description: Human-readable label. Ignored by the query.
+        gte:
+          type: number
+          description: Minimum share of the audience in this place, in percent (0-100).
+        lte:
+          type: number
+          description: Maximum share of the audience in this place, in percent (0-100).
+
+    SearchParams:
+      type: object
+      description: >
+        The full discovery filter surface — 30 keys, matching the server's
+        permit list exactly. Every key is optional and all of them AND
+        together. A `null` value counts as absent.
+
+
+        ⚠️ **Shape is enforced.** The server validates the shape of every key
+        listed here against what its query branch can consume and returns a
+        422 naming the offending filter. A wrong container (an object where an
+        array belongs, a bare string where an array of strings belongs) is
+        rejected, NOT quietly dropped — because a dropped filter would run a
+        broader search than asked for and bill for it.
+
+
+        ⚠️ **Unknown keys are dropped silently** (they are not in the permit
+        list and so never reach the shape check). In particular
+        `size`, `page`, `_source` and `track_total_hits` are deliberately NOT
+        accepted here — they drive the Elasticsearch round trip itself and are
+        set from the top-level `page`/`size`.
+
+
+        ⚠️ **`audience_male` is not accepted.** It is the internal field the
+        server normalises `audience_gender` into; send `audience_gender`.
+
+
+        Four filters are **premium** and change how the search is billed
+        (charged per hit out of the premium results balance instead of the flat
+        tariff): `audience_locations`, `audience_authentic`, `audience_gender`
+        and `aqs`. A premium search does not additionally pay the standard
+        per-result charge.
+      properties:
+        # --- keyword filters ---
+        keywords:
+          type: array
+          items:
+            type: string
+          description: >
+            Phrases matched (OR) against `username`, `full_name` and
+            `biography`. At least one must match.
+          example: ["travel", "photography"]
+        required_keywords:
+          type: string
+          description: >
+            COMMA-SEPARATED phrases, all of which must match. A single string,
+            not an array — e.g. `"vegan,recipes"`.
+          example: "vegan,recipes"
+        exclude_keywords:
+          type: string
+          description: >
+            COMMA-SEPARATED phrases, none of which may match. A single string,
+            not an array.
+          example: "crypto,casino"
+        # --- identity / classification ---
+        pks:
+          type: array
+          items: {}
+          description: >
+            Instagram account primary keys to restrict the search to. Numbers
+            or numeric strings both work.
+          example: [173560420, 427553890]
+        languages:
+          type: array
+          items:
+            type: string
+          description: Language codes the account posts in.
+          example: ["en", "es"]
+        instagram_category:
+          type: array
+          items:
+            type: string
+          description: Instagram's own business-category labels.
+        mega_categories:
+          type: array
+          items:
+            type: string
+          description: trendHERO's coarse topic buckets.
+        with_contacts:
+          type: array
+          items:
+            type: string
+            enum: [biography_contacts, trendhero_contacts]
+          description: >
+            Restrict to accounts with contact details. `biography_contacts` =
+            an email/phone detected in the bio text; `trendhero_contacts` = a
+            contact trendHERO holds. Supplying both is an OR.
+        account_type:
+          description: >
+            A single `term` match on the index's `account_type` field. A scalar
+            (string or number), never an array or object.
+        gender:
+          type: array
+          items:
+            type: integer
+            enum: [0, 1, 2, 3]
+          description: >
+            Account gender codes: `0` no gender, `1` male, `2` female, `3`
+            undetermined. ⚠️ The WHOLE filter is dropped unless every element
+            is one of those four, so the API rejects anything else with a 422.
+          example: [1]
+        brand:
+          type: array
+          items:
+            type: integer
+            enum: [0, 1, 2, 3]
+          description: >
+            Same gender codes, merged into `gender` server-side. The UI models
+            "influencer" as `[1, 2]` and "brand" as `[0, 3]`.
+        is_verified:
+          type: boolean
+          description: >
+            Verified badge. ⚠️ A real boolean — the string `"true"` is not a
+            truthy filter, it is a 422.
+        is_private:
+          type: boolean
+          description: Private account. Real boolean, as above.
+        # --- range filters (12) ---
+        follower_count:
+          $ref: "#/components/schemas/RangeFilter"
+        following_count:
+          $ref: "#/components/schemas/RangeFilter"
+        media_count:
+          $ref: "#/components/schemas/RangeFilter"
+        median_likes:
+          $ref: "#/components/schemas/RangeFilter"
+        median_comments:
+          $ref: "#/components/schemas/RangeFilter"
+        general_er:
+          $ref: "#/components/schemas/RangeFilter"
+        follower_growth_7:
+          $ref: "#/components/schemas/RangeFilter"
+        follower_growth_30:
+          $ref: "#/components/schemas/RangeFilter"
+        follower_growth_90:
+          $ref: "#/components/schemas/RangeFilter"
+        last_post_at:
+          $ref: "#/components/schemas/RangeFilter"
+        audience_authentic:
+          $ref: "#/components/schemas/RangeFilter"
+        aqs:
+          $ref: "#/components/schemas/RangeFilter"
+        # --- premium audience filters ---
+        audience_gender:
+          $ref: "#/components/schemas/AudienceGenderFilter"
+        audience_locations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AudienceLocationFilter"
+          description: >
+            **Premium.** Where the audience is. An ARRAY of objects — a bare
+            object is a 422.
+        # --- locations and age ---
+        locations:
+          type: array
+          items:
+            $ref: "#/components/schemas/LocationFilter"
+          description: >
+            Where the ACCOUNT is. An array of objects, each REQUIRING a boolean
+            `should_be_included`.
+        rapidapi_age:
+          type: array
+          items:
+            $ref: "#/components/schemas/RangeFilter"
+          description: >
+            ⚠️ An **ARRAY of age brackets**, not a single range — the brackets
+            OR together. `{"gte": 18, "lte": 30}` on its own is a 422; send
+            `[{"gte": 18, "lte": 30}]`. A bracket with no usable bound is
+            ignored.
+          example: [{"gte": 18, "lte": 24}, {"gte": 25, "lte": 34}]
+        # --- ordering ---
+        sort:
+          type: array
+          items:
+            $ref: "#/components/schemas/SortEntry"
+          description: >
+            ⚠️ An **ARRAY** of single-clause objects, not one object.
+            `{"follower_count": "desc"}` is a 422; send
+            `[{"follower_count": "desc"}]`.
+          example: [{"follower_count": "desc"}]
+
+    # ---------------------------------------------------------------------
+    # POST /v1/searches — response
+    # ---------------------------------------------------------------------
+
+    Pagination:
+      type: object
+      description: Paging metadata for a discovery search.
+      required:
+        - page
+        - size
+        - total_pages
+        - total_results
+      properties:
+        page:
+          type: integer
+          description: The **0-indexed** page that was served, echoed back.
+        size:
+          type: integer
+          description: >
+            The requested page size, echoed back verbatim. Always equal to what
+            was asked for: an out-of-range `size` is a 422, never clamped.
+        total_pages:
+          type: integer
+          description: >
+            `min(ceil(total_results / size), ceil(plan_cap / size))` — the
+            number of pages this caller may actually reach. `plan_cap` is the
+            owner's remaining `discovery_results` allowance, so this value
+            SHRINKS as credits are spent. `0` when nothing matched (page 0 is
+            still served, with an empty `results`).
+        total_results:
+          type: integer
+          format: int64
+          description: >
+            Raw Elasticsearch match count. Frequently much larger than
+            `total_pages * size` — it is the size of the match, not of what the
+            plan lets you page through.
+
+    SearchResponse:
+      type: object
+      description: A page of discovery-search results.
+      required:
+        - results
+        - pagination
+      properties:
+        results:
+          type: array
+          description: >
+            Matching accounts, possibly empty (a zero-match search at page 0 is
+            a 200, not an error).
+          items:
+            $ref: "#/components/schemas/SearchHit"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    SearchHit:
+      type: object
+      description: >
+        One matched account. Fields come straight out of the search index, so
+        most are nullable — a value is absent whenever trendHERO has not
+        collected that signal for the account. `paid` / `payment_status` /
+        `profile_pic_url` are added by the server on top of the index document.
+
+
+        Deliberately NOT included, even though the index carries them:
+        `posts` (fetching them is one upstream call per hit),
+        `note` (a web-UI-only concept),
+        `status` (superseded by `payment_status`), and
+        `audience_by_city` / `audience_by_country` — the bulk premium audience
+        distributions, which a report sells and a cheap search must not hand
+        out wholesale. The scalar audience signals below are kept because they
+        are also filterable.
+      properties:
+        pk:
+          type: integer
+          format: int64
+          description: Instagram account primary key.
+        username:
+          type: string
+          description: Instagram username — the handle to pass to `/v1/reports/{username}`.
+        full_name:
+          type: string
+          nullable: true
+        biography:
+          type: string
+          nullable: true
+        profile_pic_url:
+          type: string
+          nullable: true
+          description: Avatar URL (S3-signed). Added by the server, not an index field.
+        paid:
+          type: boolean
+          nullable: true
+          description: >
+            Whether the caller's Space already owns a report for this account —
+            if true, fetch it free with `GET /v1/reports/{username}` instead of
+            ordering a new one.
+        payment_status:
+          type: integer
+          nullable: true
+          description: Report payment/ownership status for the caller's Space.
+        is_verified:
+          type: boolean
+          nullable: true
+        follower_count:
+          type: integer
+          format: int64
+          nullable: true
+        following_count:
+          type: integer
+          format: int64
+          nullable: true
+        media_count:
+          type: integer
+          format: int64
+          nullable: true
+        general_er:
+          type: number
+          nullable: true
+          description: General engagement rate, as a fraction (not a percentage).
+        median_likes:
+          type: number
+          nullable: true
+        median_comments:
+          type: number
+          nullable: true
+        follower_growth_7:
+          type: number
+          nullable: true
+        follower_growth_30:
+          type: number
+          nullable: true
+        follower_growth_90:
+          type: number
+          nullable: true
+        last_post_at:
+          type: string
+          nullable: true
+          description: Timestamp of the most recent post.
+        city:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+        geonames_city_id:
+          type: integer
+          format: int64
+          nullable: true
+        geonames_city_name:
+          type: string
+          nullable: true
+        languages:
+          type: array
+          nullable: true
+          items:
+            type: string
+        topics:
+          type: array
+          nullable: true
+          items:
+            type: string
+        super_categories:
+          type: array
+          nullable: true
+          items:
+            type: string
+        super_categories_updated_at:
+          type: string
+          nullable: true
+        gender:
+          description: >
+            Account gender as stored in the index. The `gender` FILTER uses the
+            codes 0/1/2/3; this field is echoed verbatim from the index and is
+            left untyped here rather than asserting a representation the spec
+            author could not verify against production data.
+        account_type:
+          description: >
+            Account type, echoed verbatim from the index. Untyped for the same
+            reason as `gender`.
+        instagram_category:
+          type: string
+          nullable: true
+        contacts:
+          description: >
+            Contact availability, echoed verbatim from the index (the filter
+            treats it as the codes 0 none / 1 email / 2 phone / 3 both).
+            Untyped, as above.
+        audience_authentic:
+          type: number
+          nullable: true
+          description: Authentic-audience share.
+        audience_male:
+          type: number
+          nullable: true
+          description: >
+            Male share of the audience. The only audience-gender value stored —
+            the female share is `1 - audience_male`.
+        aqs:
+          type: number
+          nullable: true
+          description: trendHERO Audience Quality Score.
+        rapidapi_age:
+          description: Age signal from the external provider. Untyped — echoed verbatim.
+        rapidapi_gender:
+          description: Gender signal from the external provider. Untyped — echoed verbatim.
+        rapidapi_requested_at:
+          type: string
+          nullable: true
+        gender_sync_rapidapi:
+          description: Sync marker for the external gender signal. Untyped — echoed verbatim.
+        classify_text_topics:
+          type: array
+          nullable: true
+          items:
+            type: string
+        classify_text_status:
+          description: Text-classification status. Untyped — echoed verbatim.
+        classify_text_requested_at:
+          type: string
+          nullable: true
+        classify_text_sync_at:
+          type: string
+          nullable: true
+        classify_text_last_post_taken_at:
+          type: string
+          nullable: true

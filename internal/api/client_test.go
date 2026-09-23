@@ -1,9 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -25,11 +27,15 @@ type recordingServer struct {
 }
 
 type recordedRequest struct {
-	method string
-	path   string
-	auth   string
-	ua     string
-	query  map[string][]string
+	method      string
+	path        string
+	auth        string
+	ua          string
+	contentType string
+	query       map[string][]string
+	// body is the raw request body, needed by SearchAccounts — whose whole
+	// contract is that the caller's JSON reaches the server unmodified.
+	body []byte
 }
 
 // newRecordingServer starts an httptest server whose handler is `h`. Every
@@ -39,13 +45,20 @@ func newRecordingServer(t *testing.T, h http.HandlerFunc) *recordingServer {
 	t.Helper()
 	rs := &recordingServer{}
 	rs.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body []byte
+		if r.Body != nil {
+			body, _ = io.ReadAll(r.Body)
+			r.Body = io.NopCloser(bytes.NewReader(body))
+		}
 		rs.mu.Lock()
 		rs.reqs = append(rs.reqs, recordedRequest{
-			method: r.Method,
-			path:   r.URL.Path,
-			auth:   r.Header.Get("Authorization"),
-			ua:     r.Header.Get("User-Agent"),
-			query:  r.URL.Query(),
+			method:      r.Method,
+			path:        r.URL.Path,
+			auth:        r.Header.Get("Authorization"),
+			ua:          r.Header.Get("User-Agent"),
+			contentType: r.Header.Get("Content-Type"),
+			query:       r.URL.Query(),
+			body:        body,
 		})
 		rs.mu.Unlock()
 		h(w, r)
@@ -199,6 +212,46 @@ func TestOrderReportPostsUsernameQuery(t *testing.T) {
 	}
 	if got.auth != "Bearer tok" {
 		t.Errorf("Authorization = %q, want Bearer tok", got.auth)
+	}
+}
+
+// TestSearchAccountsPostsBodyVerbatim pins the reason SearchAccounts uses the
+// generated *WithBody variant instead of the typed request struct: the caller's
+// JSON must reach the server BYTE FOR BYTE. Round-tripping it through a Go
+// struct would drop any key the struct does not model — and a dropped filter is
+// a broader search that still bills.
+func TestSearchAccountsPostsBodyVerbatim(t *testing.T) {
+	rs := newRecordingServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK,
+			`{"results":[],"pagination":{"page":0,"size":15,"total_pages":0,"total_results":0}}`)
+	})
+	c := newClient(t, rs, "tok")
+
+	// Deliberately includes a key no generated model declares: it must survive.
+	body := `{"search_params":{"follower_count":{"gte":1000},"a_filter_we_do_not_model":42},"page":0,"size":15}`
+	raw, err := c.SearchAccounts(context.Background(), json.RawMessage(body))
+	if err != nil {
+		t.Fatalf("SearchAccounts: %v", err)
+	}
+	if !strings.Contains(string(raw), `"pagination"`) {
+		t.Errorf("response not passed through; got %s", raw)
+	}
+
+	got := rs.last()
+	if got.method != http.MethodPost {
+		t.Errorf("method = %s, want POST", got.method)
+	}
+	if got.path != "/api/public/v1/searches" {
+		t.Errorf("path = %q, want /api/public/v1/searches", got.path)
+	}
+	if got.auth != "Bearer tok" {
+		t.Errorf("Authorization = %q, want Bearer tok", got.auth)
+	}
+	if got.contentType != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", got.contentType)
+	}
+	if string(got.body) != body {
+		t.Errorf("request body was altered\n got: %s\nwant: %s", got.body, body)
 	}
 }
 

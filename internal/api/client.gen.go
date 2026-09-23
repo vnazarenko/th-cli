@@ -4,6 +4,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -18,6 +19,126 @@ import (
 const (
 	BearerAuthScopes bearerAuthContextKey = "bearerAuth.Scopes"
 )
+
+// Defines values for AudienceGenderFilterGender.
+const (
+	Female AudienceGenderFilterGender = "female"
+	Male   AudienceGenderFilterGender = "male"
+)
+
+// Valid indicates whether the value is a known member of the AudienceGenderFilterGender enum.
+func (e AudienceGenderFilterGender) Valid() bool {
+	switch e {
+	case Female:
+		return true
+	case Male:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LocationType.
+const (
+	City    LocationType = "city"
+	Country LocationType = "country"
+)
+
+// Valid indicates whether the value is a known member of the LocationType enum.
+func (e LocationType) Valid() bool {
+	switch e {
+	case City:
+		return true
+	case Country:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SearchParamsBrand.
+const (
+	SearchParamsBrandN0 SearchParamsBrand = 0
+	SearchParamsBrandN1 SearchParamsBrand = 1
+	SearchParamsBrandN2 SearchParamsBrand = 2
+	SearchParamsBrandN3 SearchParamsBrand = 3
+)
+
+// Valid indicates whether the value is a known member of the SearchParamsBrand enum.
+func (e SearchParamsBrand) Valid() bool {
+	switch e {
+	case SearchParamsBrandN0:
+		return true
+	case SearchParamsBrandN1:
+		return true
+	case SearchParamsBrandN2:
+		return true
+	case SearchParamsBrandN3:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SearchParamsGender.
+const (
+	SearchParamsGenderN0 SearchParamsGender = 0
+	SearchParamsGenderN1 SearchParamsGender = 1
+	SearchParamsGenderN2 SearchParamsGender = 2
+	SearchParamsGenderN3 SearchParamsGender = 3
+)
+
+// Valid indicates whether the value is a known member of the SearchParamsGender enum.
+func (e SearchParamsGender) Valid() bool {
+	switch e {
+	case SearchParamsGenderN0:
+		return true
+	case SearchParamsGenderN1:
+		return true
+	case SearchParamsGenderN2:
+		return true
+	case SearchParamsGenderN3:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SearchParamsWithContacts.
+const (
+	BiographyContacts SearchParamsWithContacts = "biography_contacts"
+	TrendheroContacts SearchParamsWithContacts = "trendhero_contacts"
+)
+
+// Valid indicates whether the value is a known member of the SearchParamsWithContacts enum.
+func (e SearchParamsWithContacts) Valid() bool {
+	switch e {
+	case BiographyContacts:
+		return true
+	case TrendheroContacts:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SortDirection.
+const (
+	Asc  SortDirection = "asc"
+	Desc SortDirection = "desc"
+)
+
+// Valid indicates whether the value is a known member of the SortDirection enum.
+func (e SortDirection) Valid() bool {
+	switch e {
+	case Asc:
+		return true
+	case Desc:
+		return true
+	default:
+		return false
+	}
+}
 
 // Defines values for GetTopProfilesParamsType.
 const (
@@ -76,6 +197,46 @@ func (e GetTopProfilesParamsCountry) Valid() bool {
 	}
 }
 
+// AudienceGenderFilter **Premium filter.** Audience gender share. The index only stores the male share, so a `female` filter is inverted server-side into `male <= 100 - gte`.
+//
+// ⚠️ Only `gender` + `gte` are acted on. `gte` must be present and non-blank; a blank `gte` disables the whole filter (and, deliberately, also stops the search being billed at the premium per-hit tariff).
+type AudienceGenderFilter struct {
+	// Gender Which side of the audience the `gte` share applies to.
+	Gender *AudienceGenderFilterGender `json:"gender,omitempty"`
+
+	// Gte Minimum share of the audience, in percent (0-100).
+	Gte *float32 `json:"gte,omitempty"`
+
+	// Lte Permitted for symmetry but NOT applied — the server derives the effective bound from `gender` + `gte` alone.
+	Lte *float32 `json:"lte,omitempty"`
+}
+
+// AudienceGenderFilterGender Which side of the audience the `gte` share applies to.
+type AudienceGenderFilterGender string
+
+// AudienceLocationFilter **Premium filter.** An AUDIENCE location — where an account's followers are — with an optional share range on top of the place itself.
+//
+// Unlike `locations` there is no include/exclude flag: every entry is a requirement. An entry naming no place (no `value` for a city, no `country` for a country) is dropped. An entry with no `gte`/`lte` means "has any audience here".
+type AudienceLocationFilter struct {
+	// Country ISO country code. Read when `type` is `country`.
+	Country *string `json:"country,omitempty"`
+
+	// Gte Minimum share of the audience in this place, in percent (0-100).
+	Gte *float32 `json:"gte,omitempty"`
+
+	// Lte Maximum share of the audience in this place, in percent (0-100).
+	Lte *float32 `json:"lte,omitempty"`
+
+	// Name Human-readable label. Ignored by the query.
+	Name *string `json:"name,omitempty"`
+
+	// Type Which half of a location entry is read. `city` uses `value` (a GeoNames city id); `country` uses `country` (an ISO country code).
+	Type *LocationType `json:"type,omitempty"`
+
+	// Value GeoNames city id. Read when `type` is `city`.
+	Value *int64 `json:"value,omitempty"`
+}
+
 // Error API error envelope.
 type Error struct {
 	// Error Error payload — a string, or an object with a `message`.
@@ -83,8 +244,298 @@ type Error struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
+// LocationFilter An ACCOUNT location (where the account itself is), include or exclude.
+//
+// ⚠️ `should_be_included` is REQUIRED and must be a real boolean. The server splits the list into an include half (`true`) and an exclude half (`false`); an entry carrying neither is in neither half, so the API rejects it with a 422 rather than silently running a broader search.
+type LocationFilter struct {
+	// Country ISO country code (e.g. `US`). Read when `type` is `country`.
+	Country *string `json:"country,omitempty"`
+
+	// Name Human-readable label. Ignored by the query; carried for round-tripping.
+	Name *string `json:"name,omitempty"`
+
+	// ShouldBeIncluded `true` = must be in this location, `false` = must NOT be. Required.
+	ShouldBeIncluded bool `json:"should_be_included"`
+
+	// Type Which half of a location entry is read. `city` uses `value` (a GeoNames city id); `country` uses `country` (an ISO country code).
+	Type *LocationType `json:"type,omitempty"`
+
+	// Value GeoNames city id. Read when `type` is `city`.
+	Value *int64 `json:"value,omitempty"`
+}
+
+// LocationType Which half of a location entry is read. `city` uses `value` (a GeoNames city id); `country` uses `country` (an ISO country code).
+type LocationType string
+
+// Pagination Paging metadata for a discovery search.
+type Pagination struct {
+	// Page The **0-indexed** page that was served, echoed back.
+	Page int `json:"page"`
+
+	// Size The requested page size, echoed back verbatim. Always equal to what was asked for: an out-of-range `size` is a 422, never clamped.
+	Size int `json:"size"`
+
+	// TotalPages `min(ceil(total_results / size), ceil(plan_cap / size))` — the number of pages this caller may actually reach. `plan_cap` is the owner's remaining `discovery_results` allowance, so this value SHRINKS as credits are spent. `0` when nothing matched (page 0 is still served, with an empty `results`).
+	TotalPages int `json:"total_pages"`
+
+	// TotalResults Raw Elasticsearch match count. Frequently much larger than `total_pages * size` — it is the size of the match, not of what the plan lets you page through.
+	TotalResults int64 `json:"total_results"`
+}
+
+// RangeFilter An inclusive numeric range. Both bounds are optional; a bound that is absent or blank is simply not applied, and a range with no usable bound contributes no filter at all.
+type RangeFilter struct {
+	// Gte Lower bound (inclusive).
+	Gte *float32 `json:"gte,omitempty"`
+
+	// Lte Upper bound (inclusive).
+	Lte *float32 `json:"lte,omitempty"`
+}
+
 // ReportResponse Free-form report blob. No declared top-level status.
 type ReportResponse map[string]interface{}
+
+// SearchHit One matched account. Fields come straight out of the search index, so most are nullable — a value is absent whenever trendHERO has not collected that signal for the account. `paid` / `payment_status` / `profile_pic_url` are added by the server on top of the index document.
+//
+// Deliberately NOT included, even though the index carries them: `posts` (fetching them is one upstream call per hit), `note` (a web-UI-only concept), `status` (superseded by `payment_status`), and `audience_by_city` / `audience_by_country` — the bulk premium audience distributions, which a report sells and a cheap search must not hand out wholesale. The scalar audience signals below are kept because they are also filterable.
+type SearchHit struct {
+	// AccountType Account type, echoed verbatim from the index. Untyped for the same reason as `gender`.
+	AccountType interface{} `json:"account_type,omitempty"`
+
+	// Aqs trendHERO Audience Quality Score.
+	Aqs *float32 `json:"aqs,omitempty"`
+
+	// AudienceAuthentic Authentic-audience share.
+	AudienceAuthentic *float32 `json:"audience_authentic,omitempty"`
+
+	// AudienceMale Male share of the audience. The only audience-gender value stored — the female share is `1 - audience_male`.
+	AudienceMale                *float32 `json:"audience_male,omitempty"`
+	Biography                   *string  `json:"biography,omitempty"`
+	City                        *string  `json:"city,omitempty"`
+	ClassifyTextLastPostTakenAt *string  `json:"classify_text_last_post_taken_at,omitempty"`
+	ClassifyTextRequestedAt     *string  `json:"classify_text_requested_at,omitempty"`
+
+	// ClassifyTextStatus Text-classification status. Untyped — echoed verbatim.
+	ClassifyTextStatus interface{} `json:"classify_text_status,omitempty"`
+	ClassifyTextSyncAt *string     `json:"classify_text_sync_at,omitempty"`
+	ClassifyTextTopics *[]string   `json:"classify_text_topics,omitempty"`
+
+	// Contacts Contact availability, echoed verbatim from the index (the filter treats it as the codes 0 none / 1 email / 2 phone / 3 both). Untyped, as above.
+	Contacts         interface{} `json:"contacts,omitempty"`
+	Country          *string     `json:"country,omitempty"`
+	FollowerCount    *int64      `json:"follower_count,omitempty"`
+	FollowerGrowth30 *float32    `json:"follower_growth_30,omitempty"`
+	FollowerGrowth7  *float32    `json:"follower_growth_7,omitempty"`
+	FollowerGrowth90 *float32    `json:"follower_growth_90,omitempty"`
+	FollowingCount   *int64      `json:"following_count,omitempty"`
+	FullName         *string     `json:"full_name,omitempty"`
+
+	// Gender Account gender as stored in the index. The `gender` FILTER uses the codes 0/1/2/3; this field is echoed verbatim from the index and is left untyped here rather than asserting a representation the spec author could not verify against production data.
+	Gender interface{} `json:"gender,omitempty"`
+
+	// GenderSyncRapidapi Sync marker for the external gender signal. Untyped — echoed verbatim.
+	GenderSyncRapidapi interface{} `json:"gender_sync_rapidapi,omitempty"`
+
+	// GeneralEr General engagement rate, as a fraction (not a percentage).
+	GeneralEr         *float32  `json:"general_er,omitempty"`
+	GeonamesCityId    *int64    `json:"geonames_city_id,omitempty"`
+	GeonamesCityName  *string   `json:"geonames_city_name,omitempty"`
+	InstagramCategory *string   `json:"instagram_category,omitempty"`
+	IsVerified        *bool     `json:"is_verified,omitempty"`
+	Languages         *[]string `json:"languages,omitempty"`
+
+	// LastPostAt Timestamp of the most recent post.
+	LastPostAt     *string  `json:"last_post_at,omitempty"`
+	MediaCount     *int64   `json:"media_count,omitempty"`
+	MedianComments *float32 `json:"median_comments,omitempty"`
+	MedianLikes    *float32 `json:"median_likes,omitempty"`
+
+	// Paid Whether the caller's Space already owns a report for this account — if true, fetch it free with `GET /v1/reports/{username}` instead of ordering a new one.
+	Paid *bool `json:"paid,omitempty"`
+
+	// PaymentStatus Report payment/ownership status for the caller's Space.
+	PaymentStatus *int `json:"payment_status,omitempty"`
+
+	// Pk Instagram account primary key.
+	Pk *int64 `json:"pk,omitempty"`
+
+	// ProfilePicUrl Avatar URL (S3-signed). Added by the server, not an index field.
+	ProfilePicUrl *string `json:"profile_pic_url,omitempty"`
+
+	// RapidapiAge Age signal from the external provider. Untyped — echoed verbatim.
+	RapidapiAge interface{} `json:"rapidapi_age,omitempty"`
+
+	// RapidapiGender Gender signal from the external provider. Untyped — echoed verbatim.
+	RapidapiGender           interface{} `json:"rapidapi_gender,omitempty"`
+	RapidapiRequestedAt      *string     `json:"rapidapi_requested_at,omitempty"`
+	SuperCategories          *[]string   `json:"super_categories,omitempty"`
+	SuperCategoriesUpdatedAt *string     `json:"super_categories_updated_at,omitempty"`
+	Topics                   *[]string   `json:"topics,omitempty"`
+
+	// Username Instagram username — the handle to pass to `/v1/reports/{username}`.
+	Username *string `json:"username,omitempty"`
+}
+
+// SearchParams The full discovery filter surface — 30 keys, matching the server's permit list exactly. Every key is optional and all of them AND together. A `null` value counts as absent.
+//
+// ⚠️ **Shape is enforced.** The server validates the shape of every key listed here against what its query branch can consume and returns a 422 naming the offending filter. A wrong container (an object where an array belongs, a bare string where an array of strings belongs) is rejected, NOT quietly dropped — because a dropped filter would run a broader search than asked for and bill for it.
+//
+// ⚠️ **Unknown keys are dropped silently** (they are not in the permit list and so never reach the shape check). In particular `size`, `page`, `_source` and `track_total_hits` are deliberately NOT accepted here — they drive the Elasticsearch round trip itself and are set from the top-level `page`/`size`.
+//
+// ⚠️ **`audience_male` is not accepted.** It is the internal field the server normalises `audience_gender` into; send `audience_gender`.
+//
+// Four filters are **premium** and change how the search is billed (charged per hit out of the premium results balance instead of the flat tariff): `audience_locations`, `audience_authentic`, `audience_gender` and `aqs`. A premium search does not additionally pay the standard per-result charge.
+type SearchParams struct {
+	// AccountType A single `term` match on the index's `account_type` field. A scalar (string or number), never an array or object.
+	AccountType interface{} `json:"account_type,omitempty"`
+
+	// Aqs An inclusive numeric range. Both bounds are optional; a bound that is absent or blank is simply not applied, and a range with no usable bound contributes no filter at all.
+	Aqs *RangeFilter `json:"aqs,omitempty"`
+
+	// AudienceAuthentic An inclusive numeric range. Both bounds are optional; a bound that is absent or blank is simply not applied, and a range with no usable bound contributes no filter at all.
+	AudienceAuthentic *RangeFilter `json:"audience_authentic,omitempty"`
+
+	// AudienceGender **Premium filter.** Audience gender share. The index only stores the male share, so a `female` filter is inverted server-side into `male <= 100 - gte`.
+	//
+	// ⚠️ Only `gender` + `gte` are acted on. `gte` must be present and non-blank; a blank `gte` disables the whole filter (and, deliberately, also stops the search being billed at the premium per-hit tariff).
+	AudienceGender *AudienceGenderFilter `json:"audience_gender,omitempty"`
+
+	// AudienceLocations **Premium.** Where the audience is. An ARRAY of objects — a bare object is a 422.
+	AudienceLocations *[]AudienceLocationFilter `json:"audience_locations,omitempty"`
+
+	// Brand Same gender codes, merged into `gender` server-side. The UI models "influencer" as `[1, 2]` and "brand" as `[0, 3]`.
+	Brand *[]SearchParamsBrand `json:"brand,omitempty"`
+
+	// ExcludeKeywords COMMA-SEPARATED phrases, none of which may match. A single string, not an array.
+	ExcludeKeywords *string `json:"exclude_keywords,omitempty"`
+
+	// FollowerCount An inclusive numeric range. Both bounds are optional; a bound that is absent or blank is simply not applied, and a range with no usable bound contributes no filter at all.
+	FollowerCount *RangeFilter `json:"follower_count,omitempty"`
+
+	// FollowerGrowth30 An inclusive numeric range. Both bounds are optional; a bound that is absent or blank is simply not applied, and a range with no usable bound contributes no filter at all.
+	FollowerGrowth30 *RangeFilter `json:"follower_growth_30,omitempty"`
+
+	// FollowerGrowth7 An inclusive numeric range. Both bounds are optional; a bound that is absent or blank is simply not applied, and a range with no usable bound contributes no filter at all.
+	FollowerGrowth7 *RangeFilter `json:"follower_growth_7,omitempty"`
+
+	// FollowerGrowth90 An inclusive numeric range. Both bounds are optional; a bound that is absent or blank is simply not applied, and a range with no usable bound contributes no filter at all.
+	FollowerGrowth90 *RangeFilter `json:"follower_growth_90,omitempty"`
+
+	// FollowingCount An inclusive numeric range. Both bounds are optional; a bound that is absent or blank is simply not applied, and a range with no usable bound contributes no filter at all.
+	FollowingCount *RangeFilter `json:"following_count,omitempty"`
+
+	// Gender Account gender codes: `0` no gender, `1` male, `2` female, `3` undetermined. ⚠️ The WHOLE filter is dropped unless every element is one of those four, so the API rejects anything else with a 422.
+	Gender *[]SearchParamsGender `json:"gender,omitempty"`
+
+	// GeneralEr An inclusive numeric range. Both bounds are optional; a bound that is absent or blank is simply not applied, and a range with no usable bound contributes no filter at all.
+	GeneralEr *RangeFilter `json:"general_er,omitempty"`
+
+	// InstagramCategory Instagram's own business-category labels.
+	InstagramCategory *[]string `json:"instagram_category,omitempty"`
+
+	// IsPrivate Private account. Real boolean, as above.
+	IsPrivate *bool `json:"is_private,omitempty"`
+
+	// IsVerified Verified badge. ⚠️ A real boolean — the string `"true"` is not a truthy filter, it is a 422.
+	IsVerified *bool `json:"is_verified,omitempty"`
+
+	// Keywords Phrases matched (OR) against `username`, `full_name` and `biography`. At least one must match.
+	Keywords *[]string `json:"keywords,omitempty"`
+
+	// Languages Language codes the account posts in.
+	Languages *[]string `json:"languages,omitempty"`
+
+	// LastPostAt An inclusive numeric range. Both bounds are optional; a bound that is absent or blank is simply not applied, and a range with no usable bound contributes no filter at all.
+	LastPostAt *RangeFilter `json:"last_post_at,omitempty"`
+
+	// Locations Where the ACCOUNT is. An array of objects, each REQUIRING a boolean `should_be_included`.
+	Locations *[]LocationFilter `json:"locations,omitempty"`
+
+	// MediaCount An inclusive numeric range. Both bounds are optional; a bound that is absent or blank is simply not applied, and a range with no usable bound contributes no filter at all.
+	MediaCount *RangeFilter `json:"media_count,omitempty"`
+
+	// MedianComments An inclusive numeric range. Both bounds are optional; a bound that is absent or blank is simply not applied, and a range with no usable bound contributes no filter at all.
+	MedianComments *RangeFilter `json:"median_comments,omitempty"`
+
+	// MedianLikes An inclusive numeric range. Both bounds are optional; a bound that is absent or blank is simply not applied, and a range with no usable bound contributes no filter at all.
+	MedianLikes *RangeFilter `json:"median_likes,omitempty"`
+
+	// MegaCategories trendHERO's coarse topic buckets.
+	MegaCategories *[]string `json:"mega_categories,omitempty"`
+
+	// Pks Instagram account primary keys to restrict the search to. Numbers or numeric strings both work.
+	Pks *[]interface{} `json:"pks,omitempty"`
+
+	// RapidapiAge ⚠️ An **ARRAY of age brackets**, not a single range — the brackets OR together. `{"gte": 18, "lte": 30}` on its own is a 422; send `[{"gte": 18, "lte": 30}]`. A bracket with no usable bound is ignored.
+	RapidapiAge *[]RangeFilter `json:"rapidapi_age,omitempty"`
+
+	// RequiredKeywords COMMA-SEPARATED phrases, all of which must match. A single string, not an array — e.g. `"vegan,recipes"`.
+	RequiredKeywords *string `json:"required_keywords,omitempty"`
+
+	// Sort ⚠️ An **ARRAY** of single-clause objects, not one object. `{"follower_count": "desc"}` is a 422; send `[{"follower_count": "desc"}]`.
+	Sort *[]SortEntry `json:"sort,omitempty"`
+
+	// WithContacts Restrict to accounts with contact details. `biography_contacts` = an email/phone detected in the bio text; `trendhero_contacts` = a contact trendHERO holds. Supplying both is an OR.
+	WithContacts *[]SearchParamsWithContacts `json:"with_contacts,omitempty"`
+}
+
+// SearchParamsBrand defines model for SearchParams.Brand.
+type SearchParamsBrand int
+
+// SearchParamsGender defines model for SearchParams.Gender.
+type SearchParamsGender int
+
+// SearchParamsWithContacts defines model for SearchParams.WithContacts.
+type SearchParamsWithContacts string
+
+// SearchRequest A discovery-search request. Every field is optional: the empty object `{}` (or no body at all) is "match everything, first page, 15 results".
+type SearchRequest struct {
+	// Page **0-indexed** page number. The FIRST page is `0`. Page 0 is always valid, even when nothing matched (200 + empty `results`). For `page >= 1`, a page at or beyond `pagination.total_pages` is a 422 and is not billed.
+	Page *int `json:"page,omitempty"`
+
+	// SearchParams The full discovery filter surface — 30 keys, matching the server's permit list exactly. Every key is optional and all of them AND together. A `null` value counts as absent.
+	//
+	// ⚠️ **Shape is enforced.** The server validates the shape of every key listed here against what its query branch can consume and returns a 422 naming the offending filter. A wrong container (an object where an array belongs, a bare string where an array of strings belongs) is rejected, NOT quietly dropped — because a dropped filter would run a broader search than asked for and bill for it.
+	//
+	// ⚠️ **Unknown keys are dropped silently** (they are not in the permit list and so never reach the shape check). In particular `size`, `page`, `_source` and `track_total_hits` are deliberately NOT accepted here — they drive the Elasticsearch round trip itself and are set from the top-level `page`/`size`.
+	//
+	// ⚠️ **`audience_male` is not accepted.** It is the internal field the server normalises `audience_gender` into; send `audience_gender`.
+	//
+	// Four filters are **premium** and change how the search is billed (charged per hit out of the premium results balance instead of the flat tariff): `audience_locations`, `audience_authentic`, `audience_gender` and `aqs`. A premium search does not additionally pay the standard per-result charge.
+	SearchParams *SearchParams `json:"search_params,omitempty"`
+
+	// Size Results per page, **1..50**. Out of range is a **422 — the server never clamps**; the bounds here only let a client fail early. Every result returned is charged, so `size` is a direct cost multiplier. The response echoes the requested `size` back verbatim.
+	Size *int `json:"size,omitempty"`
+}
+
+// SearchResponse A page of discovery-search results.
+type SearchResponse struct {
+	// Pagination Paging metadata for a discovery search.
+	Pagination Pagination `json:"pagination"`
+
+	// Results Matching accounts, possibly empty (a zero-match search at page 0 is a 200, not an error).
+	Results []SearchHit `json:"results"`
+}
+
+// SortDirection Sort direction.
+type SortDirection string
+
+// SortEntry One sort clause, as `{ "<field>": "asc"|"desc" }`. Only these five fields are sortable; any other key in the entry is dropped. `sort` is an ARRAY of these, applied in order, and `pk asc` is always appended as the final tiebreaker.
+type SortEntry struct {
+	// FollowerCount Sort direction.
+	FollowerCount *SortDirection `json:"follower_count,omitempty"`
+
+	// FollowerGrowth30 Sort direction.
+	FollowerGrowth30 *SortDirection `json:"follower_growth_30,omitempty"`
+
+	// GeneralEr Sort direction.
+	GeneralEr *SortDirection `json:"general_er,omitempty"`
+
+	// MedianComments Sort direction.
+	MedianComments *SortDirection `json:"median_comments,omitempty"`
+
+	// MedianLikes Sort direction.
+	MedianLikes *SortDirection `json:"median_likes,omitempty"`
+}
 
 // TopProfile A single ranked top profile.
 type TopProfile struct {
@@ -163,6 +614,9 @@ type CreateReportParams struct {
 	// Username Instagram username to order a report for.
 	Username string `form:"username" json:"username"`
 }
+
+// SearchAccountsJSONRequestBody defines body for SearchAccounts for application/json ContentType.
+type SearchAccountsJSONRequestBody = SearchRequest
 
 // Getter for additional properties for Error. Returns the specified
 // element and whether it was found
@@ -311,6 +765,11 @@ type ClientInterface interface {
 
 	// GetReport request
 	GetReport(ctx context.Context, username string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SearchAccountsWithBody request with any body
+	SearchAccountsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	SearchAccounts(ctx context.Context, body SearchAccountsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) GetTopProfiles(ctx context.Context, params *GetTopProfilesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -339,6 +798,30 @@ func (c *Client) CreateReport(ctx context.Context, params *CreateReportParams, r
 
 func (c *Client) GetReport(ctx context.Context, username string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetReportRequest(c.Server, username)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SearchAccountsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSearchAccountsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SearchAccounts(ctx context.Context, body SearchAccountsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSearchAccountsRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -523,6 +1006,46 @@ func NewGetReportRequest(server string, username string) (*http.Request, error) 
 	return req, nil
 }
 
+// NewSearchAccountsRequest calls the generic SearchAccounts builder with application/json body
+func NewSearchAccountsRequest(server string, body SearchAccountsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSearchAccountsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewSearchAccountsRequestWithBody generates requests for SearchAccounts with any type of body
+func NewSearchAccountsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/searches")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -574,6 +1097,11 @@ type ClientWithResponsesInterface interface {
 
 	// GetReportWithResponse request
 	GetReportWithResponse(ctx context.Context, username string, reqEditors ...RequestEditorFn) (*GetReportResponse, error)
+
+	// SearchAccountsWithBodyWithResponse request with any body
+	SearchAccountsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SearchAccountsResponse, error)
+
+	SearchAccountsWithResponse(ctx context.Context, body SearchAccountsJSONRequestBody, reqEditors ...RequestEditorFn) (*SearchAccountsResponse, error)
 }
 
 type GetTopProfilesResponse struct {
@@ -673,6 +1201,39 @@ func (r GetReportResponse) ContentType() string {
 	return ""
 }
 
+type SearchAccountsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *SearchResponse
+	JSON401      *Error
+	JSON403      *Error
+	JSON422      *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r SearchAccountsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SearchAccountsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SearchAccountsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // GetTopProfilesWithResponse request returning *GetTopProfilesResponse
 func (c *ClientWithResponses) GetTopProfilesWithResponse(ctx context.Context, params *GetTopProfilesParams, reqEditors ...RequestEditorFn) (*GetTopProfilesResponse, error) {
 	rsp, err := c.GetTopProfiles(ctx, params, reqEditors...)
@@ -698,6 +1259,23 @@ func (c *ClientWithResponses) GetReportWithResponse(ctx context.Context, usernam
 		return nil, err
 	}
 	return ParseGetReportResponse(rsp)
+}
+
+// SearchAccountsWithBodyWithResponse request with arbitrary body returning *SearchAccountsResponse
+func (c *ClientWithResponses) SearchAccountsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SearchAccountsResponse, error) {
+	rsp, err := c.SearchAccountsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSearchAccountsResponse(rsp)
+}
+
+func (c *ClientWithResponses) SearchAccountsWithResponse(ctx context.Context, body SearchAccountsJSONRequestBody, reqEditors ...RequestEditorFn) (*SearchAccountsResponse, error) {
+	rsp, err := c.SearchAccounts(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSearchAccountsResponse(rsp)
 }
 
 // ParseGetTopProfilesResponse parses an HTTP response from a GetTopProfilesWithResponse call
@@ -821,6 +1399,53 @@ func ParseGetReportResponse(rsp *http.Response) (*GetReportResponse, error) {
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSearchAccountsResponse parses an HTTP response from a SearchAccountsWithResponse call
+func ParseSearchAccountsResponse(rsp *http.Response) (*SearchAccountsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SearchAccountsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SearchResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
 
 	}
 

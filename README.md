@@ -1,8 +1,8 @@
 # th-cli — trendHERO for Claude Code
 
 A **Claude Code plugin** that lets your agent pull **trendHERO Instagram
-influencer analytics** — ranked top profiles and per-account audience/engagement
-reports — just by asking in natural language.
+influencer analytics** — ranked top profiles, influencer discovery search, and
+per-account audience/engagement reports — just by asking in natural language.
 
 Under the hood it's a small Go CLI (`th-cli`); the skill drives it for you and
 reads the JSON back, so you get answers, not raw API output. Standalone CLI
@@ -25,6 +25,8 @@ Once installed, the skill auto-triggers on Instagram-analytics requests. For
 example:
 
 - *"Top Instagram influencers in the US this month"* → ranked profiles
+- *"Find US fitness accounts with 50k-500k followers and 3%+ engagement"* →
+  discovery search (**paid** — spends credits per result)
 - *"Pull the engagement report for @nasa"* → audience quality, ER, demographics
 - *"Order a fresh report for cristiano"* → generates a **new** report (**paid** —
   only on your explicit ask)
@@ -33,10 +35,10 @@ The agent decides whether to fetch a report you already have (free) or order a
 new one (paid, and only when you clearly ask), reads the status and exit codes,
 and summarizes the result.
 
-## Get a token (for reports)
+## Get a token (for search and reports)
 
-**Top profiles need no token.** Per-account **reports** require a trendHERO
-**AccessToken**:
+**Top profiles need no token.** **Search** and per-account **reports** require a
+trendHERO **AccessToken**:
 
 1. Create one at **https://trendhero.io/app/api/access-tokens** (requires the
    **AdvancedApi** subscription; one token per Space).
@@ -58,8 +60,12 @@ not reach the binary, depending on how Claude was launched). More options:
 | Ask for… | The skill runs | Auth |
 |----------|----------------|------|
 | ranked top accounts by country/month | `th-cli top-profiles` | none |
+| accounts matching criteria (**paid**) | `th-cli search` | token |
 | a report you already have | `th-cli report get <username>` | token |
 | a **new** report (paid) | `th-cli report order <username>` | token |
+
+`search` spends credits **per result returned**, so the agent keeps page sizes
+small and does not auto-page.
 
 ## The CLI underneath
 

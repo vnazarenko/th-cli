@@ -44,6 +44,7 @@ func TestActualSkillFrontmatter(t *testing.T) {
 func TestReferenceFilesPresent(t *testing.T) {
 	for _, f := range []string{
 		"references/auth.md",
+		"references/search.md",
 		"references/reports.md",
 		"references/examples.md",
 	} {
