@@ -142,9 +142,16 @@ func TestSearchRequestBodyFromFlags(t *testing.T) {
 				`{"type":"country","country":"DE","should_be_included":true}]}}`,
 		},
 		{
+			// The index stores three-letter ISO 639-2 codes. This case used to
+			// pin `en,es` — codes that match no account and still bill.
 			name:     "language",
-			args:     []string{"--language", "en,es"},
-			wantBody: `{"page":0,"size":15,"search_params":{"languages":["en","es"]}}`,
+			args:     []string{"--language", "eng,spa"},
+			wantBody: `{"page":0,"size":15,"search_params":{"languages":["eng","spa"]}}`,
+		},
+		{
+			name:     "language is lowercased, since the index is",
+			args:     []string{"--language", "SPA"},
+			wantBody: `{"page":0,"size":15,"search_params":{"languages":["spa"]}}`,
 		},
 		{
 			name:     "category",
@@ -421,6 +428,23 @@ func TestSearchLocalValidationMakesNoCall(t *testing.T) {
 			args:     []string{"--filters-json", "/definitely/not/a/file.json"},
 			wantText: "read --filters-json",
 		},
+		{
+			// A two-letter code matches nothing, and a zero-match search is
+			// still billed — so it must never leave the machine.
+			name:     "two-letter language code, with the right one suggested",
+			args:     []string{"--language", "es"},
+			wantText: "use spa",
+		},
+		{
+			name:     "two-letter code among valid ones",
+			args:     []string{"--language", "spa,en"},
+			wantText: "use eng",
+		},
+		{
+			name:     "a language name instead of a code",
+			args:     []string{"--language", "spanish"},
+			wantText: "3-letter lowercase codes",
+		},
 	}
 
 	for _, tt := range tests {
@@ -472,6 +496,13 @@ func TestSearchMalformedFiltersJSON(t *testing.T) {
 			name:     "empty file",
 			content:  "  \n",
 			wantText: "is empty",
+		},
+		{
+			// Checked after the merge, so --filters-json cannot route around
+			// the language guard.
+			name:     "two-letter language code in the JSON",
+			content:  `{"languages": ["en"]}`,
+			wantText: "use eng",
 		},
 	}
 

@@ -617,8 +617,11 @@ components:
           type: array
           items:
             type: string
-          description: Language codes the account posts in.
-          example: ["en", "es"]
+          description: >
+            Three-letter lowercase language codes (ISO 639-2, bibliographic
+            form, e.g. `fre` not `fra`) the account posts in. A two-letter
+            code matches no account.
+          example: ["eng", "spa"]
         instagram_category:
           type: array
           items:

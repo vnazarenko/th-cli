@@ -441,7 +441,7 @@ type SearchParams struct {
 	// Keywords Phrases matched (OR) against `username`, `full_name` and `biography`. At least one must match.
 	Keywords *[]string `json:"keywords,omitempty"`
 
-	// Languages Language codes the account posts in.
+	// Languages Three-letter lowercase language codes (ISO 639-2, bibliographic form, e.g. `fre` not `fra`) the account posts in. A two-letter code matches no account.
 	Languages *[]string `json:"languages,omitempty"`
 
 	// LastPostAt An inclusive numeric range. Both bounds are optional; a bound that is absent or blank is simply not applied, and a range with no usable bound contributes no filter at all.

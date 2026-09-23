@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -150,7 +151,7 @@ func newSearchCmd() *cobra.Command {
 	f.Float64Var(&erMax, "er-max", 0, "maximum engagement rate, in percent")
 	f.StringSliceVar(&countries, "country", nil,
 		"ISO country code(s) the ACCOUNT is in (repeatable or comma-separated)")
-	f.StringSliceVar(&languages, "language", nil, "language code(s) the account posts in")
+	f.StringSliceVar(&languages, "language", nil, "3-letter language code(s) the account posts in, e.g. spa,eng")
 	f.StringSliceVar(&categories, "category", nil, "Instagram business category name(s)")
 	f.StringVar(&gender, "gender", "", "account gender: "+genderHint())
 	f.BoolVar(&verified, "verified", false,
@@ -230,6 +231,12 @@ func buildSearchBody(f searchFlags, filtersJSON string, stdin io.Reader) (json.R
 		params[k] = v
 	}
 
+	// After the merge, so a code arriving through --filters-json is checked
+	// exactly like one from --language.
+	if err := validateLanguages(params["languages"]); err != nil {
+		return nil, err
+	}
+
 	body := map[string]any{
 		"page": f.page,
 		"size": f.size,
@@ -262,7 +269,11 @@ func searchParamsFromFlags(f searchFlags) (map[string]any, error) {
 		params["general_er"] = r
 	}
 	if len(f.languages) > 0 {
-		params["languages"] = f.languages
+		langs := make([]string, 0, len(f.languages))
+		for _, l := range f.languages {
+			langs = append(langs, strings.ToLower(strings.TrimSpace(l)))
+		}
+		params["languages"] = langs
 	}
 	if len(f.categories) > 0 {
 		params["instagram_category"] = f.categories
@@ -418,4 +429,57 @@ func sortedKeys[V any](m map[string]V) string {
 	}
 	sort.Strings(keys)
 	return strings.Join(keys, ", ")
+}
+
+// languageCode is the only shape the index stores: three lowercase letters,
+// ISO 639-2 bibliographic form (`spa`, `eng`, `fre`).
+var languageCode = regexp.MustCompile(`^[a-z]{3}$`)
+
+// twoLetterHints maps the ISO 639-1 codes people reach for first onto the
+// codes the index actually carries. Only codes seen in real search results are
+// listed — the index uses the bibliographic `fre`, not `fra`, so a guess for a
+// language not listed here could easily be the other variant.
+var twoLetterHints = map[string]string{
+	"en": "eng", "es": "spa", "ca": "cat", "gl": "glg", "fr": "fre",
+	"it": "ita", "pt": "por", "tr": "tur", "ja": "jpn",
+}
+
+// validateLanguages rejects a language code the index can never match.
+//
+// ⚠️ This is a money guard, not tidiness. `languages` is an Elasticsearch
+// terms filter over three-letter codes, so `es` or `en` matches no account at
+// all — and a zero-match search is still a SUCCESS that is billed the flat
+// per-search charge. Catching it here costs nothing: no API call is made.
+//
+// A value that is not a list of strings is left alone — the server rejects a
+// wrong shape with an unbilled 422, and restating its rules here would drift.
+func validateLanguages(v any) error {
+	var codes []string
+	switch list := v.(type) {
+	case nil:
+		return nil
+	case []string:
+		codes = list
+	case []any:
+		for _, item := range list {
+			code, ok := item.(string)
+			if !ok {
+				return nil
+			}
+			codes = append(codes, code)
+		}
+	default:
+		return nil
+	}
+
+	for _, code := range codes {
+		if languageCode.MatchString(code) {
+			continue
+		}
+		if hint, ok := twoLetterHints[strings.ToLower(code)]; ok {
+			return fmt.Errorf("invalid language %q: the index uses 3-letter codes — use %s", code, hint)
+		}
+		return fmt.Errorf("invalid language %q: the index uses 3-letter lowercase codes such as spa, eng, cat, fre", code)
+	}
+	return nil
 }
